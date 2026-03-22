@@ -50,9 +50,7 @@
             cursor: pointer;
             width: 100%;
             display: block;
-            transition: transform 0.1s;
         }
-        .btn:active { transform: scale(0.98); }
         .btn-green { background: var(--green); color: white; }
         .btn-blue { background: var(--blue); color: white; }
         .btn-red { background: var(--red); color: white; }
@@ -153,7 +151,6 @@
 <script>
     let html5QrCode = null;
 
-    // --- PELIN HALLINTA ---
     function startGame(type) {
         document.getElementById('setup').style.display = 'none';
         document.getElementById('game-area').style.display = 'block';
@@ -164,21 +161,24 @@
 
     function openQuitModal() { document.getElementById('quit-modal').style.display = 'flex'; }
     function closeQuitModal() { document.getElementById('quit-modal').style.display = 'none'; }
-    function confirmQuit() { window.location.reload(); }
+    
+    function confirmQuit() {
+        if (html5QrCode && html5QrCode.getState() > 1) {
+            html5QrCode.stop().then(() => { window.location.reload(); }).catch(() => { window.location.reload(); });
+        } else {
+            window.location.reload();
+        }
+    }
 
-    // --- RUUDUKON LUONTI ---
     function createBoard(type) {
         const board = document.getElementById('bingo-board');
         board.innerHTML = "<thead><tr><th>B</th><th>I</th><th>N</th><th>G</th><th>O</th></tr></thead>";
         const tbody = document.createElement('tbody');
-        
         const colData = [];
         for (let c = 0; c < 5; c++) {
             let start = (c * 15) + 1;
-            let nums = Array.from({length: 15}, (_, i) => start + i).sort(() => Math.random() - 0.5);
-            colData.push(nums);
+            colData.push(Array.from({length: 15}, (_, i) => start + i).sort(() => Math.random() - 0.5));
         }
-
         const rowsCount = (type === 'iso') ? 15 : 5;
         for (let r = 0; r < rowsCount; r++) {
             if (type === 'iso' && r > 0 && r % 5 === 0) {
@@ -191,13 +191,11 @@
                 const td = document.createElement('td');
                 let isStar = (type === 'pieni' && r === 2 && c === 2) || 
                              (type === 'iso' && (r === 2 || r === 7 || r === 12) && c === 2);
-                
                 if (isStar) { 
                     td.innerHTML = "★"; td.classList.add('star-cell', 'marked'); 
                 } else { 
                     td.innerText = colData[c][r % 15]; 
                 }
-
                 td.onclick = function() {
                     if (this.innerText || this.innerHTML.includes("★")) {
                         this.classList.toggle('marked');
@@ -220,65 +218,49 @@
         if(full) tr.classList.add('row-complete'); else tr.classList.remove('row-complete');
     }
 
-    // --- QR-TARKISTUS ---
     async function openScanner() {
         document.getElementById('qr-modal').style.display = 'flex';
         document.getElementById('status-display').style.display = 'none';
-        
         if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-
-        html5QrCode.start(
-            { facingMode: "environment" }, 
-            { fps: 10, qrbox: { width: 250, height: 250 } },
-            (qrText) => { verifyBingo(qrText); }
-        ).catch(err => {
-            const display = document.getElementById('status-display');
-            display.style.display = 'block';
-            display.className = 'msg-err';
-            display.innerText = "Kameravirhe: Salli kamera selaimen asetuksista.";
-        });
+        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (qrText) => { verifyBingo(qrText); })
+        .catch(() => { document.getElementById('status-display').style.display = 'block'; document.getElementById('status-display').innerText = "Kameravirhe."; });
     }
 
     async function closeScanner() {
-        if (html5QrCode && html5QrCode.getState() > 1) {
-            await html5QrCode.stop();
-        }
+        if (html5QrCode && html5QrCode.getState() > 1) await html5QrCode.stop();
         document.getElementById('qr-modal').style.display = 'none';
     }
 
     function verifyBingo(qrData) {
-        // Sammutetaan kamera
         if (html5QrCode) html5QrCode.stop().catch(() => {});
 
-        // --- TÄRKEÄ KORJAUS TÄSSÄ ---
-        // Etsitään kaikki numerot merkkijonosta, välittämättä suluista tai muista roskamerkeistä
-        const calledNumbers = (qrData.match(/\d+/g) || []).map(n => parseInt(n));
+        // --- KORJAUS APPI-INVENTORIN FORMAATILLE [12, 5, 44] ---
+        // Puhdistetaan sulkeet ja pilkut, muutetaan numerolistaksi
+        const calledNumbers = qrData.replace(/[\[\]]/g, '').split(/[\s,]+/).map(n => parseInt(n)).filter(n => !isNaN(n));
         
         const display = document.getElementById('status-display');
         display.style.display = 'block';
 
         const markedNums = [];
         document.querySelectorAll('td.marked').forEach(td => {
-            // Luetaan vain numerot, jätetään tähti (★) huomiotta vertailussa
             const n = parseInt(td.innerText);
             if (!isNaN(n)) markedNums.push(n);
         });
 
-        // HUIJAUSTARKISTUS: Onko jokin merkitty numero listalla, jota EI ole huudettu?
+        // HUIJAUSTARKISTUS
         const invalid = markedNums.filter(n => !calledNumbers.includes(n));
 
         if (invalid.length > 0) {
             display.className = "msg-err";
-            display.innerHTML = "🔴 HUIJAUS TAI VIRHE!<br>Merkitty numeroita, joita ei ole vielä huudettu: " + invalid.join(", ");
+            display.innerHTML = "🔴 HUIJAUS!<br>Merkitty numeroita, joita ei ole vielä huudettu: " + invalid.join(", ");
         } else {
-            // Tarkistetaan onko joku vaakarivi täynnä (row-complete)
             const hasBingo = document.querySelector('tr.row-complete:not(.spacer-row)');
             if (hasBingo) {
                 display.className = "msg-ok";
-                display.innerHTML = "✅ BINGO ON AITO! 🎉<br>Kaikki numerot löytyivät listalta.";
+                display.innerHTML = "✅ BINGO ON AITO! 🎉";
             } else {
                 display.className = "msg-err";
-                display.innerHTML = "⚠️ EI BINGOA.<br>Merkinnät ovat oikein, mutta mikään rivi ei ole vielä täynnä.";
+                display.innerHTML = "⚠️ EI BINGOA.<br>Merkinnät ok, mutta rivi ei ole täynnä.";
             }
         }
     }
