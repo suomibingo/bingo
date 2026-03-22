@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bingo - QR Tarkistus</title>
+    <!-- QR-kirjasto -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        :root {
+            --bg: #2c3e50;
+            --white: #ffffff;
+            --green: #27ae60;
+            --blue: #2980b9;
+            --red: #e74c3c;
+            --yellow: #f1c40f;
+        }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: var(--bg);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 10px;
+            min-height: 100vh;
+        }
+
+        /* ALOITUSRUUTU */
+        #setup {
+            background: white;
+            color: #333;
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            max-width: 350px;
+            margin-top: 40px;
+        }
+
+        .btn {
+            border: none;
+            padding: 15px 25px;
+            margin: 10px auto;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 12px;
+            cursor: pointer;
+            width: 100%;
+            display: block;
+        }
+        .btn-green { background: var(--green); color: white; }
+        .btn-blue { background: var(--blue); color: white; }
+        .btn-red { background: var(--red); color: white; }
+        .btn-orange { background: #f39c12; color: white; }
+
+        /* PELIALUE */
+        #game-area { display: none; text-align: center; width: 100%; }
+        .board-info { font-size: 14px; color: #bdc3c7; margin-bottom: 10px; }
+
+        .bingo-table {
+            border-collapse: collapse;
+            margin: 10px auto;
+            background: white;
+            color: #333;
+            box-shadow: 0 0 30px rgba(0,0,0,0.4);
+        }
+
+        .bingo-table th { background: var(--yellow); padding: 10px; border: 2px solid #333; font-size: 22px; }
+        .bingo-table td { border: 2px solid #333; width: 55px; height: 55px; text-align: center; font-size: 22px; font-weight: bold; cursor: pointer; position: relative; }
+
+        /* MERKINNÄT */
+        .marked::after {
+            content: ""; position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%); width: 45px; height: 45px;
+            border: 5px solid var(--red); border-radius: 50%; pointer-events: none;
+        }
+
+        tr.row-complete td::before {
+            content: ""; position: absolute; top: 50%; left: 0; right: 0;
+            height: 6px; background: rgba(231, 76, 60, 0.5); z-index: 10; pointer-events: none;
+        }
+
+        .star-cell { color: var(--yellow); font-size: 35px !important; text-shadow: 1px 1px 2px #000; }
+        .spacer-row { height: 12px; background: #bdc3c7; border: none; }
+
+        /* IKKUNAT (MODALS) */
+        .modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); z-index: 5000;
+            justify-content: center; align-items: center; flex-direction: column;
+        }
+
+        .modal-content {
+            background: white; color: #333; padding: 20px;
+            border-radius: 15px; width: 85%; max-width: 350px; text-align: center;
+        }
+
+        #reader { width: 100%; min-height: 250px; background: #000; border-radius: 10px; }
+        #status-display { padding: 10px; border-radius: 8px; font-weight: bold; margin-top: 10px; display: none; }
+        
+        .msg-err { background: #f8d7da; color: #721c24; }
+        .msg-ok { background: #d4edda; color: #155724; }
+    </style>
+</head>
+<body>
+
+    <div id="setup">
+        <h1>BINGO</h1>
+        <button class="btn btn-green" onclick="startGame('pieni')">Pieni (5x5)</button>
+        <button class="btn btn-blue" onclick="startGame('iso')">Iso (3 x 15)</button>
+    </div>
+
+    <div id="game-area">
+        <div class="board-info">Luotu: <span id="board-time"></span></div>
+        <table class="bingo-table" id="bingo-board"></table>
+        <div style="margin-top: 20px;">
+            <button class="btn btn-orange" style="width:auto; display:inline-block; padding: 12px 30px;" onclick="openScanner()">Tarkista QR</button>
+            <button class="btn btn-red" style="width:auto; display:inline-block; padding: 12px 30px;" onclick="openQuitModal()">Lopeta peli</button>
+        </div>
+    </div>
+
+    <!-- QR IKKUNA -->
+    <div id="qr-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="margin:0;">Skannaa QR</h2>
+            <div id="reader"></div>
+            <div id="status-display"></div>
+            <button class="btn btn-blue" onclick="closeScanner()">SULJE</button>
+        </div>
+    </div>
+
+    <!-- LOPETUS IKKUNA -->
+    <div id="quit-modal" class="modal">
+        <div class="modal-content">
+            <h2>Lopetetaanko?</h2>
+            <p>Peli päättyy ja palaat alkuun.</p>
+            <div style="display:flex; gap:10px;">
+                <button class="btn" style="background:#ccc;" onclick="closeQuitModal()">Palaa</button>
+                <button class="btn btn-red" onclick="confirmQuit()">Lopeta</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    let html5QrCode = null;
+
+    function startGame(type) {
+        document.getElementById('setup').style.display = 'none';
+        document.getElementById('game-area').style.display = 'block';
+        const now = new Date();
+        document.getElementById('board-time').innerText = now.toLocaleTimeString('fi-FI');
+        createBoard(type);
+    }
+
+    // --- LOPETUS (Yksinkertaistettu) ---
+    function openQuitModal() {
+        document.getElementById('quit-modal').style.display = 'flex';
+    }
+
+    function closeQuitModal() {
+        document.getElementById('quit-modal').style.display = 'none';
+    }
+
+    function confirmQuit() {
+        // Lataa sivu uudelleen, mikä on varmin tapa nollata peli
+        window.location.reload();
+    }
+
+    // --- RUUDUKKO ---
+    function createBoard(type) {
+        const board = document.getElementById('bingo-board');
+        board.innerHTML = "<thead><tr><th>B</th><th>I</th><th>N</th><th>G</th><th>O</th></tr></thead>";
+        const tbody = document.createElement('tbody');
+        const colData = [];
+        for (let c = 0; c < 5; c++) {
+            let start = (c * 15) + 1;
+            colData.push(Array.from({length: 15}, (_, i) => start + i).sort(() => Math.random() - 0.5));
+        }
+        const rows = (type === 'iso') ? 15 : 5;
+        for (let r = 0; r < rows; r++) {
+            if (type === 'iso' && r > 0 && r % 5 === 0) {
+                let sp = document.createElement('tr'); sp.className = 'spacer-row';
+                for(let i=0; i<5; i++) sp.appendChild(document.createElement('td'));
+                tbody.appendChild(sp);
+            }
+            let tr = document.createElement('tr');
+            for (let c = 0; c < 5; c++) {
+                let td = document.createElement('td');
+                let isStar = (type==='pieni'&&r===2&&c===2) || (type==='iso'&&(r===2||r===7||r===12)&&c===2);
+                if (isStar) { td.innerHTML = "★"; td.classList.add('star-cell', 'marked'); }
+                else { td.innerText = colData[c][r % 15]; }
+                td.onclick = function() {
+                    if (this.innerText || this.innerHTML.includes("★")) {
+                        this.classList.toggle('marked');
+                        checkRow(this.parentElement);
+                    }
+                };
+                tr.appendChild(td);
+            }
+            tbody.appendChild(tr);
+            checkRow(tr);
+        }
+        board.appendChild(tbody);
+    }
+
+    function checkRow(row) {
+        let cells = row.querySelectorAll('td');
+        if (cells.length < 5) return;
+        let full = true;
+        cells.forEach(c => { if(!c.classList.contains('marked')) full = false; });
+        if(full) row.classList.add('row-complete'); else row.classList.remove('row-complete');
+    }
+
+    // --- QR SKANNERI ---
+    async function openScanner() {
+        document.getElementById('qr-modal').style.display = 'flex';
+        document.getElementById('status-display').style.display = 'none';
+        if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (text) => verifyBingo(text))
+        .catch(() => { document.getElementById('status-display').style.display = 'block'; document.getElementById('status-display').innerText = "Kameravirhe."; });
+    }
+
+    async function closeScanner() {
+        if (html5QrCode && html5QrCode.getState() > 1) await html5QrCode.stop();
+        document.getElementById('qr-modal').style.display = 'none';
+    }
+
+    function verifyBingo(qrData) {
+        if (html5QrCode) html5QrCode.stop().catch(() => {});
+        const notCalled = qrData.split(/[\s,]+/).map(n => parseInt(n)).filter(n => !isNaN(n));
+        const display = document.getElementById('status-display');
+        display.style.display = 'block';
+        let marked = [];
+        document.querySelectorAll('td.marked').forEach(td => { let n = parseInt(td.innerText); if(!isNaN(n)) marked.push(n); });
+        let cheaters = marked.filter(n => notCalled.includes(n));
+        if (cheaters.length > 0) {
+            display.className = "msg-err";
+            display.innerHTML = "🔴 HUIJAUS!<br>Numeroita ei ole huudettu: " + cheaters.join(", ");
+        } else {
+            if (document.querySelector('tr.row-complete:not(.spacer-row)')) {
+                display.className = "msg-ok"; display.innerHTML = "✅ BINGO ON AITO! 🎉";
+            } else {
+                display.className = "msg-err"; display.innerHTML = "⚠️ EI BINGOA.<br>Rivi ei ole täynnä.";
+            }
+        }
+    }
+</script>
+</body>
+</html>
