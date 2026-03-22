@@ -181,7 +181,6 @@
 
         const rowsCount = (type === 'iso') ? 15 : 5;
         for (let r = 0; r < rowsCount; r++) {
-            // Lisätään väli isoon bingoon
             if (type === 'iso' && r > 0 && r % 5 === 0) {
                 let sp = document.createElement('tr'); sp.className = 'spacer-row';
                 for(let i=0; i<5; i++) sp.appendChild(document.createElement('td'));
@@ -189,8 +188,7 @@
             }
             let tr = document.createElement('tr');
             for (let c = 0; c < 5; c++) {
-                let td = document.createElement('td');
-                // Tähden sijainti (keskellä jokaista 5x5 osiota)
+                const td = document.createElement('td');
                 let isStar = (type === 'pieni' && r === 2 && c === 2) || 
                              (type === 'iso' && (r === 2 || r === 7 || r === 12) && c === 2);
                 
@@ -249,35 +247,38 @@
     }
 
     function verifyBingo(qrData) {
-        // Sammutetaan kamera heti kun data on luettu
+        // Sammutetaan kamera
         if (html5QrCode) html5QrCode.stop().catch(() => {});
 
-        // QR sisältää numerot jotka ON jo huudettu
-        const calledNumbers = qrData.split(/[\s,]+/).map(n => parseInt(n)).filter(n => !isNaN(n));
+        // --- TÄRKEÄ KORJAUS TÄSSÄ ---
+        // Etsitään kaikki numerot merkkijonosta, välittämättä suluista tai muista roskamerkeistä
+        const calledNumbers = (qrData.match(/\d+/g) || []).map(n => parseInt(n));
+        
         const display = document.getElementById('status-display');
         display.style.display = 'block';
 
         const markedNums = [];
         document.querySelectorAll('td.marked').forEach(td => {
+            // Luetaan vain numerot, jätetään tähti (★) huomiotta vertailussa
             const n = parseInt(td.innerText);
             if (!isNaN(n)) markedNums.push(n);
         });
 
-        // HUIJAUSTARKISTUS: Etsitään merkittyjä numeroita, joita EI löydy huudettujen listalta
+        // HUIJAUSTARKISTUS: Onko jokin merkitty numero listalla, jota EI ole huudettu?
         const invalid = markedNums.filter(n => !calledNumbers.includes(n));
 
         if (invalid.length > 0) {
             display.className = "msg-err";
             display.innerHTML = "🔴 HUIJAUS TAI VIRHE!<br>Merkitty numeroita, joita ei ole vielä huudettu: " + invalid.join(", ");
         } else {
-            // Tarkistetaan onko joku vaakarivi täynnä
+            // Tarkistetaan onko joku vaakarivi täynnä (row-complete)
             const hasBingo = document.querySelector('tr.row-complete:not(.spacer-row)');
             if (hasBingo) {
                 display.className = "msg-ok";
-                display.innerHTML = "✅ BINGO ON AITO! 🎉";
+                display.innerHTML = "✅ BINGO ON AITO! 🎉<br>Kaikki numerot löytyivät listalta.";
             } else {
                 display.className = "msg-err";
-                display.innerHTML = "⚠️ EI BINGOA.<br>Merkinnät ok, mutta rivi ei ole täynnä.";
+                display.innerHTML = "⚠️ EI BINGOA.<br>Merkinnät ovat oikein, mutta mikään rivi ei ole vielä täynnä.";
             }
         }
     }
