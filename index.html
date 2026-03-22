@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bingo - QR Tarkistus</title>
-    <!-- QR-kirjasto -->
+    <!-- QR-skannerikirjasto -->
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         :root {
@@ -50,15 +50,17 @@
             cursor: pointer;
             width: 100%;
             display: block;
+            transition: transform 0.1s;
         }
+        .btn:active { transform: scale(0.98); }
         .btn-green { background: var(--green); color: white; }
         .btn-blue { background: var(--blue); color: white; }
         .btn-red { background: var(--red); color: white; }
         .btn-orange { background: #f39c12; color: white; }
 
         /* PELIALUE */
-        #game-area { display: none; text-align: center; width: 100%; }
-        .board-info { font-size: 14px; color: #bdc3c7; margin-bottom: 10px; }
+        #game-area { display: none; text-align: center; width: 100%; max-width: 600px; }
+        .board-info { font-size: 14px; color: #bdc3c7; margin-bottom: 10px; background: rgba(0,0,0,0.3); padding: 5px 15px; border-radius: 20px; display: inline-block; }
 
         .bingo-table {
             border-collapse: collapse;
@@ -68,22 +70,22 @@
             box-shadow: 0 0 30px rgba(0,0,0,0.4);
         }
 
-        .bingo-table th { background: var(--yellow); padding: 10px; border: 2px solid #333; font-size: 22px; }
-        .bingo-table td { border: 2px solid #333; width: 55px; height: 55px; text-align: center; font-size: 22px; font-weight: bold; cursor: pointer; position: relative; }
+        .bingo-table th { background: var(--yellow); padding: 10px; border: 2px solid #333; font-size: 22px; color: #2c3e50; }
+        .bingo-table td { border: 2px solid #333; width: 60px; height: 60px; text-align: center; font-size: 24px; font-weight: bold; cursor: pointer; position: relative; }
 
-        /* MERKINNÄT */
+        /* MERKINNÄT JA YLIVIIVAUKSET */
         .marked::after {
             content: ""; position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%); width: 45px; height: 45px;
-            border: 5px solid var(--red); border-radius: 50%; pointer-events: none;
+            transform: translate(-50%, -50%); width: 50px; height: 50px;
+            border: 5px solid var(--red); border-radius: 50%; pointer-events: none; box-sizing: border-box;
         }
 
         tr.row-complete td::before {
-            content: ""; position: absolute; top: 50%; left: 0; right: 0;
-            height: 6px; background: rgba(231, 76, 60, 0.5); z-index: 10; pointer-events: none;
+            content: ""; position: absolute; top: 50%; left: -2px; right: -2px;
+            height: 8px; background: rgba(231, 76, 60, 0.5); z-index: 10; pointer-events: none;
         }
 
-        .star-cell { color: var(--yellow); font-size: 35px !important; text-shadow: 1px 1px 2px #000; }
+        .star-cell { color: var(--yellow); font-size: 38px !important; text-shadow: 1px 1px 2px #000; }
         .spacer-row { height: 12px; background: #bdc3c7; border: none; }
 
         /* IKKUNAT (MODALS) */
@@ -94,52 +96,56 @@
         }
 
         .modal-content {
-            background: white; color: #333; padding: 20px;
-            border-radius: 15px; width: 85%; max-width: 350px; text-align: center;
+            background: white; color: #333; padding: 25px;
+            border-radius: 20px; width: 85%; max-width: 380px; text-align: center;
         }
 
-        #reader { width: 100%; min-height: 250px; background: #000; border-radius: 10px; }
-        #status-display { padding: 10px; border-radius: 8px; font-weight: bold; margin-top: 10px; display: none; }
+        #reader { width: 100%; min-height: 250px; background: #000; border-radius: 10px; overflow: hidden; }
+        #status-display { padding: 15px; border-radius: 10px; font-weight: bold; margin-top: 15px; display: none; }
         
-        .msg-err { background: #f8d7da; color: #721c24; }
-        .msg-ok { background: #d4edda; color: #155724; }
+        .msg-err { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .msg-ok { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+
+        .modal-btns { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
     </style>
 </head>
 <body>
 
+    <!-- ALOITUSRUUTU -->
     <div id="setup">
-        <h1>BINGO</h1>
+        <h1 style="color:#2c3e50; margin:0 0 20px 0;">BINGO</h1>
         <button class="btn btn-green" onclick="startGame('pieni')">Pieni (5x5)</button>
         <button class="btn btn-blue" onclick="startGame('iso')">Iso (3 x 15)</button>
     </div>
 
+    <!-- PELIALUE -->
     <div id="game-area">
         <div class="board-info">Luotu: <span id="board-time"></span></div>
         <table class="bingo-table" id="bingo-board"></table>
-        <div style="margin-top: 20px;">
-            <button class="btn btn-orange" style="width:auto; display:inline-block; padding: 12px 30px;" onclick="openScanner()">Tarkista QR</button>
-            <button class="btn btn-red" style="width:auto; display:inline-block; padding: 12px 30px;" onclick="openQuitModal()">Lopeta peli</button>
+        <div style="margin-top: 20px; display: flex; flex-direction: column; align-items: center;">
+            <button class="btn btn-orange" style="width: auto; padding: 12px 40px;" onclick="openScanner()">SKANNAA QR (Tarkista)</button>
+            <button class="btn btn-red" style="width: auto; padding: 10px 40px; margin-top: 15px;" onclick="openQuitModal()">Lopeta peli</button>
         </div>
     </div>
 
     <!-- QR IKKUNA -->
     <div id="qr-modal" class="modal">
         <div class="modal-content">
-            <h2 style="margin:0;">Skannaa QR</h2>
+            <h2 style="margin-top:0;">Skannaa QR-koodi</h2>
             <div id="reader"></div>
             <div id="status-display"></div>
-            <button class="btn btn-blue" onclick="closeScanner()">SULJE</button>
+            <button class="btn btn-blue" style="margin-top: 15px;" onclick="closeScanner()">SULJE</button>
         </div>
     </div>
 
     <!-- LOPETUS IKKUNA -->
     <div id="quit-modal" class="modal">
         <div class="modal-content">
-            <h2>Lopetetaanko?</h2>
-            <p>Peli päättyy ja palaat alkuun.</p>
-            <div style="display:flex; gap:10px;">
-                <button class="btn" style="background:#ccc;" onclick="closeQuitModal()">Palaa</button>
-                <button class="btn btn-red" onclick="confirmQuit()">Lopeta</button>
+            <h2 style="margin-top:0; color:var(--red);">Lopetetaanko?</h2>
+            <p>Haluatko varmasti palata alkuun?</p>
+            <div class="modal-btns">
+                <button class="btn" style="background:#ccc; color:#333; margin:0;" onclick="closeQuitModal()">Palaa</button>
+                <button class="btn btn-red" style="margin:0; flex:1;" onclick="confirmQuit()">Lopeta</button>
             </div>
         </div>
     </div>
@@ -147,6 +153,7 @@
 <script>
     let html5QrCode = null;
 
+    // --- PELIN HALLINTA ---
     function startGame(type) {
         document.getElementById('setup').style.display = 'none';
         document.getElementById('game-area').style.display = 'block';
@@ -155,32 +162,26 @@
         createBoard(type);
     }
 
-    // --- LOPETUS (Yksinkertaistettu) ---
-    function openQuitModal() {
-        document.getElementById('quit-modal').style.display = 'flex';
-    }
+    function openQuitModal() { document.getElementById('quit-modal').style.display = 'flex'; }
+    function closeQuitModal() { document.getElementById('quit-modal').style.display = 'none'; }
+    function confirmQuit() { window.location.reload(); }
 
-    function closeQuitModal() {
-        document.getElementById('quit-modal').style.display = 'none';
-    }
-
-    function confirmQuit() {
-        // Lataa sivu uudelleen, mikä on varmin tapa nollata peli
-        window.location.reload();
-    }
-
-    // --- RUUDUKKO ---
+    // --- RUUDUKON LUONTI ---
     function createBoard(type) {
         const board = document.getElementById('bingo-board');
         board.innerHTML = "<thead><tr><th>B</th><th>I</th><th>N</th><th>G</th><th>O</th></tr></thead>";
         const tbody = document.createElement('tbody');
+        
         const colData = [];
         for (let c = 0; c < 5; c++) {
             let start = (c * 15) + 1;
-            colData.push(Array.from({length: 15}, (_, i) => start + i).sort(() => Math.random() - 0.5));
+            let nums = Array.from({length: 15}, (_, i) => start + i).sort(() => Math.random() - 0.5);
+            colData.push(nums);
         }
-        const rows = (type === 'iso') ? 15 : 5;
-        for (let r = 0; r < rows; r++) {
+
+        const rowsCount = (type === 'iso') ? 15 : 5;
+        for (let r = 0; r < rowsCount; r++) {
+            // Lisätään väli isoon bingoon
             if (type === 'iso' && r > 0 && r % 5 === 0) {
                 let sp = document.createElement('tr'); sp.className = 'spacer-row';
                 for(let i=0; i<5; i++) sp.appendChild(document.createElement('td'));
@@ -189,9 +190,16 @@
             let tr = document.createElement('tr');
             for (let c = 0; c < 5; c++) {
                 let td = document.createElement('td');
-                let isStar = (type==='pieni'&&r===2&&c===2) || (type==='iso'&&(r===2||r===7||r===12)&&c===2);
-                if (isStar) { td.innerHTML = "★"; td.classList.add('star-cell', 'marked'); }
-                else { td.innerText = colData[c][r % 15]; }
+                // Tähden sijainti (keskellä jokaista 5x5 osiota)
+                let isStar = (type === 'pieni' && r === 2 && c === 2) || 
+                             (type === 'iso' && (r === 2 || r === 7 || r === 12) && c === 2);
+                
+                if (isStar) { 
+                    td.innerHTML = "★"; td.classList.add('star-cell', 'marked'); 
+                } else { 
+                    td.innerText = colData[c][r % 15]; 
+                }
+
                 td.onclick = function() {
                     if (this.innerText || this.innerHTML.includes("★")) {
                         this.classList.toggle('marked');
@@ -206,44 +214,70 @@
         board.appendChild(tbody);
     }
 
-    function checkRow(row) {
-        let cells = row.querySelectorAll('td');
+    function checkRow(tr) {
+        let cells = tr.querySelectorAll('td');
         if (cells.length < 5) return;
         let full = true;
         cells.forEach(c => { if(!c.classList.contains('marked')) full = false; });
-        if(full) row.classList.add('row-complete'); else row.classList.remove('row-complete');
+        if(full) tr.classList.add('row-complete'); else tr.classList.remove('row-complete');
     }
 
-    // --- QR SKANNERI ---
+    // --- QR-TARKISTUS ---
     async function openScanner() {
         document.getElementById('qr-modal').style.display = 'flex';
         document.getElementById('status-display').style.display = 'none';
+        
         if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (text) => verifyBingo(text))
-        .catch(() => { document.getElementById('status-display').style.display = 'block'; document.getElementById('status-display').innerText = "Kameravirhe."; });
+
+        html5QrCode.start(
+            { facingMode: "environment" }, 
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            (qrText) => { verifyBingo(qrText); }
+        ).catch(err => {
+            const display = document.getElementById('status-display');
+            display.style.display = 'block';
+            display.className = 'msg-err';
+            display.innerText = "Kameravirhe: Salli kamera selaimen asetuksista.";
+        });
     }
 
     async function closeScanner() {
-        if (html5QrCode && html5QrCode.getState() > 1) await html5QrCode.stop();
+        if (html5QrCode && html5QrCode.getState() > 1) {
+            await html5QrCode.stop();
+        }
         document.getElementById('qr-modal').style.display = 'none';
     }
 
     function verifyBingo(qrData) {
+        // Sammutetaan kamera heti kun data on luettu
         if (html5QrCode) html5QrCode.stop().catch(() => {});
-        const notCalled = qrData.split(/[\s,]+/).map(n => parseInt(n)).filter(n => !isNaN(n));
+
+        // QR sisältää numerot jotka ON jo huudettu
+        const calledNumbers = qrData.split(/[\s,]+/).map(n => parseInt(n)).filter(n => !isNaN(n));
         const display = document.getElementById('status-display');
         display.style.display = 'block';
-        let marked = [];
-        document.querySelectorAll('td.marked').forEach(td => { let n = parseInt(td.innerText); if(!isNaN(n)) marked.push(n); });
-        let cheaters = marked.filter(n => notCalled.includes(n));
-        if (cheaters.length > 0) {
+
+        const markedNums = [];
+        document.querySelectorAll('td.marked').forEach(td => {
+            const n = parseInt(td.innerText);
+            if (!isNaN(n)) markedNums.push(n);
+        });
+
+        // HUIJAUSTARKISTUS: Etsitään merkittyjä numeroita, joita EI löydy huudettujen listalta
+        const invalid = markedNums.filter(n => !calledNumbers.includes(n));
+
+        if (invalid.length > 0) {
             display.className = "msg-err";
-            display.innerHTML = "🔴 HUIJAUS!<br>Numeroita ei ole huudettu: " + cheaters.join(", ");
+            display.innerHTML = "🔴 HUIJAUS TAI VIRHE!<br>Merkitty numeroita, joita ei ole vielä huudettu: " + invalid.join(", ");
         } else {
-            if (document.querySelector('tr.row-complete:not(.spacer-row)')) {
-                display.className = "msg-ok"; display.innerHTML = "✅ BINGO ON AITO! 🎉";
+            // Tarkistetaan onko joku vaakarivi täynnä
+            const hasBingo = document.querySelector('tr.row-complete:not(.spacer-row)');
+            if (hasBingo) {
+                display.className = "msg-ok";
+                display.innerHTML = "✅ BINGO ON AITO! 🎉";
             } else {
-                display.className = "msg-err"; display.innerHTML = "⚠️ EI BINGOA.<br>Rivi ei ole täynnä.";
+                display.className = "msg-err";
+                display.innerHTML = "⚠️ EI BINGOA.<br>Merkinnät ok, mutta rivi ei ole täynnä.";
             }
         }
     }
