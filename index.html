@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bingo - QR Tarkistus</title>
-    <!-- QR-skannerikirjasto -->
+    <title>Bingo - QR & Lisäarvonta</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         :root {
@@ -14,10 +13,11 @@
             --blue: #2980b9;
             --red: #e74c3c;
             --yellow: #f1c40f;
+            --purple: #8e44ad;
         }
 
         body {
-            font-family: 'Segoe UI', Arial, sans-serif;
+            font-family: 'Segoe UI', sans-serif;
             background-color: var(--bg);
             color: white;
             display: flex;
@@ -28,7 +28,6 @@
             min-height: 100vh;
         }
 
-        /* ALOITUSRUUTU */
         #setup {
             background: white;
             color: #333;
@@ -37,7 +36,7 @@
             text-align: center;
             box-shadow: 0 10px 40px rgba(0,0,0,0.5);
             max-width: 350px;
-            margin-top: 40px;
+            margin-top: 50px;
         }
 
         .btn {
@@ -50,14 +49,17 @@
             cursor: pointer;
             width: 100%;
             display: block;
+            transition: transform 0.1s;
         }
+        .btn:active { transform: scale(0.98); }
         .btn-green { background: var(--green); color: white; }
         .btn-blue { background: var(--blue); color: white; }
         .btn-red { background: var(--red); color: white; }
         .btn-orange { background: #f39c12; color: white; }
+        .btn-purple { background: var(--purple); color: white; }
 
-        /* PELIALUE */
         #game-area { display: none; text-align: center; width: 100%; max-width: 600px; }
+        
         .board-info { font-size: 14px; color: #bdc3c7; margin-bottom: 10px; background: rgba(0,0,0,0.3); padding: 5px 15px; border-radius: 20px; display: inline-block; }
 
         .bingo-table {
@@ -71,7 +73,6 @@
         .bingo-table th { background: var(--yellow); padding: 10px; border: 2px solid #333; font-size: 22px; color: #2c3e50; }
         .bingo-table td { border: 2px solid #333; width: 60px; height: 60px; text-align: center; font-size: 24px; font-weight: bold; cursor: pointer; position: relative; }
 
-        /* MERKINNÄT JA YLIVIIVAUKSET */
         .marked::after {
             content: ""; position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%); width: 50px; height: 50px;
@@ -80,13 +81,12 @@
 
         tr.row-complete td::before {
             content: ""; position: absolute; top: 50%; left: -2px; right: -2px;
-            height: 8px; background: rgba(231, 76, 60, 0.5); z-index: 10; pointer-events: none;
+            height: 8px; background: rgba(231, 76, 60, 0.6); z-index: 10; pointer-events: none;
         }
 
-        .star-cell { color: var(--yellow); font-size: 38px !important; text-shadow: 1px 1px 2px #000; }
-        .spacer-row { height: 12px; background: #bdc3c7; border: none; }
+        .star-cell { color: var(--yellow); font-size: 40px !important; text-shadow: 1px 1px 2px #000; }
+        .spacer-row { height: 15px; background: #bdc3c7; border: none; }
 
-        /* IKKUNAT (MODALS) */
         .modal {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.95); z-index: 5000;
@@ -103,11 +103,14 @@
         
         .msg-err { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
         .msg-ok { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+
+        .extra-draw-number { font-size: 48px; font-weight: 900; color: var(--purple); margin: 20px 0; letter-spacing: 5px; }
+        #extra-draw-qr { margin: 10px auto; display: block; border: 10px solid white; }
     </style>
 </head>
 <body>
 
-    <!-- ALOITUSRUUTU -->
+    <!-- ALOITUS -->
     <div id="setup">
         <h1 style="color:#2c3e50; margin:0 0 20px 0;">BINGO</h1>
         <button class="btn btn-green" onclick="startGame('pieni')">Pieni (5x5)</button>
@@ -119,62 +122,71 @@
         <div class="board-info">Luotu: <span id="board-time"></span></div>
         <table class="bingo-table" id="bingo-board"></table>
         <div style="margin-top: 20px; display: flex; flex-direction: column; align-items: center;">
-            <button class="btn btn-orange" style="width: auto; padding: 12px 40px;" onclick="openScanner()">SKANNAA QR (Tarkista)</button>
-            <button class="btn btn-red" style="width: auto; padding: 10px 40px; margin-top: 15px;" onclick="openQuitModal()">Lopeta peli</button>
+            <button class="btn btn-orange" style="width: 250px;" onclick="openScanner()">SKANNAA QR (Tarkista)</button>
+            <button class="btn btn-purple" style="width: 250px;" onclick="openExtraDraw()">LISÄARVONTA</button>
+            <button class="btn btn-red" style="width: 200px; padding: 10px; font-size: 14px; margin-top: 20px;" onclick="openQuitModal()">Lopeta peli</button>
+        </div>
+    </div>
+
+    <!-- LISÄARVONTA MODAALI -->
+    <div id="extra-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="margin:0; color: var(--purple);">Lisäarvonta</h2>
+            <p>Sinun onnennumerosi:</p>
+            <div id="extra-number-display" class="extra-draw-number">000000</div>
+            <img id="extra-draw-qr" src="" alt="QR Koodi" width="200" height="200">
+            <button class="btn btn-blue" style="margin-top: 15px;" onclick="closeExtraDraw()">SULJE</button>
         </div>
     </div>
 
     <!-- QR TARKISTUSIKKUNA -->
     <div id="qr-modal" class="modal">
         <div class="modal-content">
-            <h2 style="margin-top:0;">Skannaa QR-koodi</h2>
+            <h2 style="margin:0;">Skannaa QR-koodi</h2>
             <div id="reader"></div>
             <div id="status-display"></div>
             <button class="btn btn-blue" style="margin-top: 15px;" onclick="closeScanner()">SULJE</button>
         </div>
     </div>
 
-    <!-- LOPETUS VARMISTUSIKKUNA (TÄMÄ ON NYT TAKAISIN) -->
+    <!-- LOPETUSVARMISTUS -->
     <div id="quit-modal" class="modal">
         <div class="modal-content">
-            <h2 style="margin-top:0; color:var(--red);">Lopetetaanko?</h2>
-            <p>Peli päättyy ja palaat alkuun. Haluatko varmasti lopettaa?</p>
+            <h2 style="margin:0; color:var(--red);">Lopetetaanko?</h2>
+            <p>Haluatko varmasti palata alkuun?</p>
             <div style="display:flex; gap:10px; justify-content: center; margin-top: 20px;">
                 <button class="btn" style="background:#ccc; color:#333; margin:0; width: auto; padding: 10px 30px;" onclick="closeQuitModal()">Palaa</button>
-                <button class="btn btn-red" style="margin:0; width: auto; padding: 10px 30px;" onclick="confirmQuit()">Lopeta</button>
+                <button class="btn btn-red" style="margin:0; width: auto; padding: 10px 30px;" onclick="window.location.reload()">Lopeta</button>
             </div>
         </div>
     </div>
 
 <script>
     let html5QrCode = null;
+    let extraNumber = ""; 
 
     // --- PELIN HALLINTA ---
     function startGame(type) {
         document.getElementById('setup').style.display = 'none';
         document.getElementById('game-area').style.display = 'block';
-        const now = new Date();
-        document.getElementById('board-time').innerText = now.toLocaleTimeString('fi-FI');
+        document.getElementById('board-time').innerText = new Date().toLocaleTimeString('fi-FI');
+        
+        // Luodaan onnennumero pelin alussa
+        extraNumber = Math.floor(100000 + Math.random() * 900000).toString();
+        
         createBoard(type);
     }
 
-    // --- LOPETA PELI TOIMINNOT ---
-    function openQuitModal() {
-        document.getElementById('quit-modal').style.display = 'flex';
+    function openExtraDraw() {
+        document.getElementById('extra-number-display').innerText = extraNumber;
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${extraNumber}`;
+        document.getElementById('extra-draw-qr').src = qrUrl;
+        document.getElementById('extra-modal').style.display = 'flex';
     }
 
-    function closeQuitModal() {
-        document.getElementById('quit-modal').style.display = 'none';
-    }
-
-    function confirmQuit() {
-        // Pysäytetään skanneri jos se on auki ja ladataan sivu uudelleen
-        if (html5QrCode && html5QrCode.getState() > 1) {
-            html5QrCode.stop().then(() => { window.location.reload(); }).catch(() => { window.location.reload(); });
-        } else {
-            window.location.reload();
-        }
-    }
+    function closeExtraDraw() { document.getElementById('extra-modal').style.display = 'none'; }
+    function openQuitModal() { document.getElementById('quit-modal').style.display = 'flex'; }
+    function closeQuitModal() { document.getElementById('quit-modal').style.display = 'none'; }
 
     // --- RUUDUKON LUONTI ---
     function createBoard(type) {
@@ -196,15 +208,11 @@
             let tr = document.createElement('tr');
             for (let c = 0; c < 5; c++) {
                 const td = document.createElement('td');
-                let isStar = (type === 'pieni' && r === 2 && c === 2) || 
-                             (type === 'iso' && (r === 2 || r === 7 || r === 12) && c === 2);
-                if (isStar) { 
-                    td.innerHTML = "★"; td.classList.add('star-cell', 'marked'); 
-                } else { 
-                    td.innerText = colData[c][r % 15]; 
-                }
-                td.onclick = function() {
-                    if (this.innerText || this.innerHTML.includes("★")) {
+                let isStar = (type==='pieni'&&r===2&&c===2) || (type==='iso'&&(r===2||r===7||r===12)&&c===2);
+                if (isStar) { td.innerHTML = "★"; td.classList.add('star-cell', 'marked'); } 
+                else { td.innerText = colData[c][r % 15]; }
+                td.onclick = function() { 
+                    if(this.innerText || this.innerHTML.includes("★")) {
                         this.classList.toggle('marked');
                         checkRow(this.parentElement);
                     }
@@ -217,26 +225,21 @@
         board.appendChild(tbody);
     }
 
-    function checkRow(tr) {
-        let cells = tr.querySelectorAll('td');
+    function checkRow(row) {
+        let cells = row.querySelectorAll('td');
         if (cells.length < 5) return;
         let full = true;
         cells.forEach(c => { if(!c.classList.contains('marked')) full = false; });
-        if(full) tr.classList.add('row-complete'); else tr.classList.remove('row-complete');
+        if(full) row.classList.add('row-complete'); else row.classList.remove('row-complete');
     }
 
-    // --- QR-TARKISTUS ---
+    // --- QR SKANNERI ---
     async function openScanner() {
         document.getElementById('qr-modal').style.display = 'flex';
         document.getElementById('status-display').style.display = 'none';
         if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
         html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (qrText) => { verifyBingo(qrText); })
-        .catch(() => { 
-            const display = document.getElementById('status-display');
-            display.style.display = 'block'; 
-            display.className = 'msg-err';
-            display.innerText = "Kameravirhe: Salli kamera selaimessa."; 
-        });
+        .catch(() => { alert("Kameravirhe."); });
     }
 
     async function closeScanner() {
@@ -246,33 +249,21 @@
 
     function verifyBingo(qrData) {
         if (html5QrCode) html5QrCode.stop().catch(() => {});
-
-        // POIMITAAN NUMEROT (regexit poistaa hakasulkeet ja kaiken muun paitsi numerot)
-        const calledNumbers = (qrData.match(/\d+/g) || []).map(Number);
-        
+        const called = (qrData.match(/\d+/g) || []).map(Number);
         const display = document.getElementById('status-display');
         display.style.display = 'block';
-
-        const markedNums = [];
+        let marked = [];
         document.querySelectorAll('td.marked').forEach(td => {
-            const n = parseInt(td.innerText);
-            if (!isNaN(n)) markedNums.push(n);
+            let n = parseInt(td.innerText); if(!isNaN(n)) marked.push(n);
         });
-
-        // HUIJAUSTARKISTUS (Jos merkitään numeroa jota ei löydy huudetuista)
-        const invalid = markedNums.filter(n => !calledNumbers.includes(n));
-
+        let invalid = marked.filter(n => !called.includes(n));
         if (invalid.length > 0) {
-            display.className = "msg-err";
-            display.innerHTML = "🔴 HUIJAUS!<br>Merkitty numeroita, joita ei ole vielä huudettu: " + invalid.join(", ");
+            display.className = "msg-err"; display.innerHTML = "🔴 HUIJAUS!<br>Merkitty numeroita, joita ei ole huudettu: " + invalid.join(", ");
         } else {
-            const hasBingo = document.querySelector('tr.row-complete:not(.spacer-row)');
-            if (hasBingo) {
-                display.className = "msg-ok";
-                display.innerHTML = "✅ BINGO ON AITO! 🎉";
+            if (document.querySelector('tr.row-complete:not(.spacer-row)')) {
+                display.className = "msg-ok"; display.innerHTML = "✅ BINGO ON AITO! 🎉";
             } else {
-                display.className = "msg-err";
-                display.innerHTML = "⚠️ EI BINGOA.<br>Merkinnät ok, mutta rivi ei ole täynnä.";
+                display.className = "msg-err"; display.innerHTML = "⚠️ EI BINGOA.<br>Rivi ei ole täynnä.";
             }
         }
     }
