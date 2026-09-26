@@ -106,6 +106,11 @@
         #tv-scan-reader { width: 100%; min-height: 220px; background: #000; border-radius: 10px; overflow: hidden; margin: 12px 0; }
         #tv-scan-reader video { width: 100%; height: 100%; object-fit: cover; display: block; }
         .scan-hint { font-size: 14px; color: #7f8c8d; min-height: 1.4em; margin: 0 0 6px; }
+        .code-input {
+            width: 100%; box-sizing: border-box; padding: 14px; font-size: 26px; text-align: center;
+            letter-spacing: 10px; border: 2px solid #bdc3c7; border-radius: 12px;
+        }
+        .or-sep { text-align: center; color: #95a5a6; font-size: 13px; margin: 10px 0; }
     </style>
 </head>
 <body>
@@ -117,6 +122,12 @@
         <div id="name-box" style="display:none; margin-bottom:6px;">
             <input id="player-name" class="name-input" maxlength="24" placeholder="Nimi tai nimimerkki" autocomplete="off" aria-label="Nimi">
             <div id="name-hint" class="name-hint">Nimi näkyy tarkistajalle ja on mukana lisäarvonnassa.</div>
+        </div>
+        <div id="code-entry" style="display:none;">
+            <input id="code-input" class="code-input" inputmode="numeric" pattern="[0-9]*" maxlength="3" placeholder="Pelin koodi" autocomplete="off" aria-label="Pelin koodi"
+                   oninput="this.value=this.value.replace(/[^0-9A-Za-z]/g,'')" onkeydown="if(event.key==='Enter')submitCode()">
+            <button class="btn btn-green" style="margin-top:8px;" onclick="submitCode()">Liity koodilla</button>
+            <div class="or-sep">tai</div>
         </div>
         <button id="btn-tv-scan" class="btn btn-purple" style="display:none;" onclick="openTvScan()">Skannaa TV:n QR</button>
         <div id="size-choice">
@@ -10272,9 +10283,9 @@ return module.exports;})();
     const TOPIC_PREFIX = 'suomibingo-';
     const GAME_CODE = (function () {
         const p = new URLSearchParams(location.search).get('peli');
-        return (p && /^[A-Za-z0-9]{4,12}$/.test(p)) ? p.toUpperCase() : '';
+        return (p && /^[A-Za-z0-9]{3,12}$/.test(p)) ? p.toUpperCase() : '';
     })();
-    const URL_TYPE = (function () {
+    let URL_TYPE = (function () {
         const t = (new URLSearchParams(location.search).get('t') || '').toLowerCase();
         return (t === 'pieni' || t === 'iso') ? t : '';
     })();
@@ -10316,13 +10327,21 @@ return module.exports;})();
         }
     }
 
+    // Pelin koodin käsin kirjoittaminen (vaihtoehto QR:n skannaukselle)
+    function submitCode() {
+        const inp = document.getElementById('code-input');
+        const code = inp.value.trim();
+        if (!/^[A-Za-z0-9]{3,12}$/.test(code)) { inp.focus(); return; }
+        location.search = 'peli=' + encodeURIComponent(code.toUpperCase());
+    }
+
     // --- TV:N QR SKANNAUS SELAIMESSA (kun sivu on auki ilman pelikoodia) ---
     let tvScanStream = null, tvScanDetector = null, tvScanTimer = null, tvScanGen = 0;
     function parseTvLink(text) {
         let u;
         try { u = new URL(String(text).trim()); } catch (e) { return null; }
         const code = u.searchParams.get('peli');
-        if (!code || !/^[A-Za-z0-9]{4,12}$/.test(code)) return null;
+        if (!code || !/^[A-Za-z0-9]{3,12}$/.test(code)) return null;
         const type = (u.searchParams.get('t') || '').toLowerCase();
         let q = 'peli=' + encodeURIComponent(code.toUpperCase());
         if (type === 'pieni' || type === 'iso') q += '&t=' + type;
@@ -10400,17 +10419,43 @@ return module.exports;})();
         return ['B', 'I', 'N', 'G', 'O'].map((L, c) => L + ': ' + cols[c].join(', ')).join('; ');
     }
 
-    if (GAME_CODE) {
-        document.getElementById('game-tag').style.display = 'block';
-        document.getElementById('game-tag-code').innerText = GAME_CODE;
-        document.getElementById('name-box').style.display = 'block';
-        if (URL_TYPE) {
-            document.getElementById('size-choice').style.display = 'none';
-            document.getElementById('btn-start-fixed').style.display = 'block';
-        }
-    } else {
-        document.getElementById('btn-tv-scan').style.display = 'block';
+    // Jos koodi kirjoitettiin käsin (ei QR:stä), kortin koko ei tullut linkin mukana – kysytään se
+    // kertaalleen pelin kanavalta, jotta pelaaja ei siltikään joudu valitsemaan sitä itse.
+    async function resolveTypeIfNeeded() {
+        if (!GAME_CODE || URL_TYPE) return;
+        try {
+            const ctl = new AbortController();
+            const t = setTimeout(() => ctl.abort(), 6000);
+            const res = await fetch(RELAY_BASE + TOPIC_PREFIX + GAME_CODE.toLowerCase() + '/json?poll=1&since=all', { signal: ctl.signal });
+            clearTimeout(t);
+            const text = await res.text();
+            text.split('\n').forEach((line) => {
+                line = line.trim(); if (!line) return;
+                try {
+                    const m = JSON.parse(line);
+                    if (m.event !== 'message') return;
+                    const p = JSON.parse(m.message);
+                    if (p && p.t === 'tv' && (p.c === 'pieni' || p.c === 'iso')) URL_TYPE = p.c;
+                } catch (e) {}
+            });
+        } catch (e) {}
     }
+
+    (async function initSetup() {
+        if (GAME_CODE) {
+            document.getElementById('game-tag').style.display = 'block';
+            document.getElementById('game-tag-code').innerText = GAME_CODE;
+            document.getElementById('name-box').style.display = 'block';
+            await resolveTypeIfNeeded();
+            if (URL_TYPE) {
+                document.getElementById('size-choice').style.display = 'none';
+                document.getElementById('btn-start-fixed').style.display = 'block';
+            }
+        } else {
+            document.getElementById('btn-tv-scan').style.display = 'block';
+            document.getElementById('code-entry').style.display = 'block';
+        }
+    })();
 
     // --- PELIN HALLINTA ---
     function startGame(type) {
