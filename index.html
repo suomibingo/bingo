@@ -10419,34 +10419,44 @@ return module.exports;})();
         return ['B', 'I', 'N', 'G', 'O'].map((L, c) => L + ': ' + cols[c].join(', ')).join('; ');
     }
 
-    // Jos koodi kirjoitettiin käsin (ei QR:stä), kortin koko ei tullut linkin mukana – kysytään se
-    // kertaalleen pelin kanavalta, jotta pelaaja ei siltikään joudu valitsemaan sitä itse.
-    async function resolveTypeIfNeeded() {
-        if (!GAME_CODE || URL_TYPE) return;
-        try {
-            const ctl = new AbortController();
-            const t = setTimeout(() => ctl.abort(), 6000);
-            const res = await fetch(RELAY_BASE + TOPIC_PREFIX + GAME_CODE.toLowerCase() + '/json?poll=1&since=all', { signal: ctl.signal });
-            clearTimeout(t);
-            const text = await res.text();
-            text.split('\n').forEach((line) => {
-                line = line.trim(); if (!line) return;
-                try {
-                    const m = JSON.parse(line);
-                    if (m.event !== 'message') return;
-                    const p = JSON.parse(m.message);
-                    if (p && p.t === 'tv' && (p.c === 'pieni' || p.c === 'iso')) URL_TYPE = p.c;
-                } catch (e) {}
-            });
-        } catch (e) {}
+    // Pelin tämänhetkinen tila (huudetut numerot + kortin koko) haetaan kertaalleen taustalla heti sivun
+    // avautuessa. Käynnistetään heti, jotta vastaus ehtii valmiiksi siihen mennessä kun "Aloita peli" painetaan –
+    // pelaajan ei tarvitse odottaa sitä erikseen. Tarvitaan sekä kortin koon päättelyyn (jos koodi kirjoitettiin
+    // käsin eikä QR:n mukana tullut &t=) että lapun valmiiksi merkitsemiseen, jos liitytään kesken pelin.
+    function fetchCurrentState() {
+        if (!GAME_CODE) return Promise.resolve(null);
+        return (async () => {
+            try {
+                const ctl = new AbortController();
+                const t = setTimeout(() => ctl.abort(), 6000);
+                const res = await fetch(RELAY_BASE + TOPIC_PREFIX + GAME_CODE.toLowerCase() + '/json?poll=1&since=all', { signal: ctl.signal });
+                clearTimeout(t);
+                const text = await res.text();
+                let latest = null, latestS = -1;
+                text.split('\n').forEach((line) => {
+                    line = line.trim(); if (!line) return;
+                    try {
+                        const m = JSON.parse(line);
+                        if (m.event !== 'message') return;
+                        const p = JSON.parse(m.message);
+                        if (p && p.t === 'tv' && Number(p.s) > latestS) { latestS = Number(p.s); latest = p; }
+                    } catch (e) {}
+                });
+                return latest;   // { n:[huudetut], r, c:'pieni'|'iso', o } tai null
+            } catch (e) { return null; }
+        })();
     }
+    const statePromise = fetchCurrentState();
 
     (async function initSetup() {
         if (GAME_CODE) {
             document.getElementById('game-tag').style.display = 'block';
             document.getElementById('game-tag-code').innerText = GAME_CODE;
             document.getElementById('name-box').style.display = 'block';
-            await resolveTypeIfNeeded();
+            if (!URL_TYPE) {
+                const state = await statePromise;
+                if (state && (state.c === 'pieni' || state.c === 'iso')) URL_TYPE = state.c;
+            }
             if (URL_TYPE) {
                 document.getElementById('size-choice').style.display = 'none';
                 document.getElementById('btn-start-fixed').style.display = 'block';
@@ -10457,8 +10467,20 @@ return module.exports;})();
         }
     })();
 
+    // Merkitsee lappuun jo huudetut numerot, kun liitytään kesken pelin (esim. pelinjohtajan "Koodi"-napista).
+    function markAlreadyCalled(numbers) {
+        const called = new Set(numbers.map(Number));
+        document.querySelectorAll('#bingo-board td').forEach((td) => {
+            const n = parseInt(td.innerText, 10);
+            if (!isNaN(n) && called.has(n)) td.classList.add('marked');
+        });
+        document.querySelectorAll('#bingo-board tbody tr').forEach((tr) => {
+            if (!tr.classList.contains('spacer-row')) checkRow(tr);
+        });
+    }
+
     // --- PELIN HALLINTA ---
-    function startGame(type) {
+    async function startGame(type) {
         if (GAME_CODE) {
             const nameEl = document.getElementById('player-name'), hint = document.getElementById('name-hint');
             const name = nameEl.value.trim().replace(/\s+/g, ' ').slice(0, 24);
@@ -10479,6 +10501,8 @@ return module.exports;})();
         if (GAME_CODE) {   // nimi (lisäarvonta) ja kortti (tarkistaja) lähtevät peliin automaattisesti
             myMsg = JSON.stringify({ t: 'j', id: MY_ID, nm: playerName, k: type, c: cardString() });
             joinMyGame();
+            const state = await statePromise;   // lähes aina jo valmis tähän mennessä, ei havaittavaa viivettä
+            if (state && Array.isArray(state.n) && state.n.length) markAlreadyCalled(state.n);
         }
     }
 
