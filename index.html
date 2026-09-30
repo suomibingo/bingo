@@ -163,7 +163,7 @@
             <p>Haluatko varmasti palata alkuun?</p>
             <div style="display:flex; gap:10px; justify-content: center; margin-top: 20px;">
                 <button class="btn" style="background:#ccc; color:#333; margin:0; width: auto; padding: 10px 30px;" onclick="closeQuitModal()">Palaa</button>
-                <button class="btn btn-red" style="margin:0; width: auto; padding: 10px 30px;" onclick="window.location.reload()">Lopeta</button>
+                <button class="btn btn-red" style="margin:0; width: auto; padding: 10px 30px;" onclick="quitToHome()">Lopeta</button>
             </div>
         </div>
     </div>
@@ -10289,7 +10289,7 @@ return module.exports;})();
         const t = (new URLSearchParams(location.search).get('t') || '').toLowerCase();
         return (t === 'pieni' || t === 'iso') ? t : '';
     })();
-    const MY_ID = 'p' + Math.random().toString(36).slice(2, 10);
+    let MY_ID = 'p' + Math.random().toString(36).slice(2, 10);
     let playerName = '';
     let myJoin = 'none';   // 'none' | 'pending' | 'ok' | 'fail'
     let myMsg = '';
@@ -10494,31 +10494,51 @@ return module.exports;})();
         }
         document.getElementById('setup').style.display = 'none';
         document.getElementById('game-area').style.display = 'block';
-        document.getElementById('board-time').innerText = new Date().toLocaleTimeString('fi-FI');
+        boardTime = new Date().toLocaleTimeString('fi-FI');
+        document.getElementById('board-time').innerText = boardTime;
+        gameInProgress = true;
 
         createBoard(type);
+        saveGame();
 
         if (GAME_CODE) {   // nimi (lisäarvonta) ja kortti (tarkistaja) lähtevät peliin automaattisesti
             myMsg = JSON.stringify({ t: 'j', id: MY_ID, nm: playerName, k: type, c: cardString() });
             joinMyGame();
             const state = await statePromise;   // lähes aina jo valmis tähän mennessä, ei havaittavaa viivettä
-            if (state && Array.isArray(state.n) && state.n.length) markAlreadyCalled(state.n);
+            if (state && Array.isArray(state.n) && state.n.length) { markAlreadyCalled(state.n); saveGame(); }
         }
     }
 
     function openQuitModal() { document.getElementById('quit-modal').style.display = 'flex'; }
     function closeQuitModal() { document.getElementById('quit-modal').style.display = 'none'; }
 
+    // Oma Lopeta-nappi: siirry täysin puhtaalle etusivulle (ilman ?peli=-koodia), ei kysytä enää nimimerkkiä.
+    function quitToHome() {
+        gameInProgress = false;   // ei enää selaimen omaa "poistutaanko sivulta" -kysymystä tämän jälkeen
+        clearSavedGame();         // peli päättyy: ei palauteta enää päivityksen tai uudelleen avaamisen jälkeen
+        location.href = location.pathname;
+    }
+
+    // Vahingossa tapahtuva sivun päivitys tai sulkeminen kesken pelin kysyy varmistuksen (selaimen oma valintaikkuna).
+    // Jos pelaaja peruu, peli jatkuu täsmälleen ennallaan – mitään ei nollaannu.
+    let gameInProgress = false;
+    window.addEventListener('beforeunload', (e) => {
+        if (!gameInProgress) return;
+        e.preventDefault();
+        e.returnValue = '';
+    });
+
     // --- RUUDUKON LUONTI ---
-    function createBoard(type) {
+    function createBoard(type, savedCols) {
         const board = document.getElementById('bingo-board');
         board.innerHTML = "<thead><tr><th>B</th><th>I</th><th>N</th><th>G</th><th>O</th></tr></thead>";
         const tbody = document.createElement('tbody');
         const colData = [];
         for (let c = 0; c < 5; c++) {
             let start = (c * 15) + 1;
-            colData.push(Array.from({length: 15}, (_, i) => start + i).sort(() => Math.random() - 0.5));
+            colData.push(savedCols ? savedCols[c].slice() : Array.from({length: 15}, (_, i) => start + i).sort(() => Math.random() - 0.5));
         }
+        boardCols = colData; boardType = type;
         const rowsCount = (type === 'iso') ? 15 : 5;
         for (let r = 0; r < rowsCount; r++) {
             if (type === 'iso' && r > 0 && r % 5 === 0) {
@@ -10536,6 +10556,7 @@ return module.exports;})();
                     if(this.innerText || this.innerHTML.includes("★")) {
                         this.classList.toggle('marked');
                         checkRow(this.parentElement);
+                        saveGame();
                     }
                 };
                 tr.appendChild(td);
@@ -10553,6 +10574,61 @@ return module.exports;})();
         cells.forEach(c => { if(!c.classList.contains('marked')) full = false; });
         if(full) row.classList.add('row-complete'); else row.classList.remove('row-complete');
     }
+
+    // --- PELIN TALLENNUS: sivun päivitys ei nollaa peliä ---
+    // Kortti, merkinnät, nimi ja tunniste tallennetaan tämän välilehden muistiin (sessionStorage). Päivityksen jälkeen
+    // sama kortti palautuu samana eikä nimeä kysytä uudelleen. Tarpeen, koska kaikki selaimet (esim. iPhone) eivät
+    // näytä "poistutaanko sivulta" -kysymystä, ja koska puhelin voi ladata taustalle jääneen välilehden uudelleen.
+    // Vain oma Lopeta-nappi päättää pelin.
+    const STORE_KEY = 'bingoPlayerGame';
+    let boardCols = null, boardType = '', boardTime = '';
+
+    function saveGame() {
+        if (!boardCols) return;
+        try {
+            const marked = [];
+            document.querySelectorAll('#bingo-board td.marked').forEach((td) => {
+                const n = parseInt(td.innerText, 10);
+                if (!isNaN(n)) marked.push(n);
+            });
+            sessionStorage.setItem(STORE_KEY, JSON.stringify({
+                code: GAME_CODE, id: MY_ID, name: playerName, type: boardType, cols: boardCols, marked: marked, time: boardTime, ts: Date.now()
+            }));
+        } catch (e) {}
+    }
+    function clearSavedGame() { try { sessionStorage.removeItem(STORE_KEY); } catch (e) {} }
+
+    function tryRestoreGame() {
+        let sv = null;
+        try { sv = JSON.parse(sessionStorage.getItem(STORE_KEY) || 'null'); } catch (e) { sv = null; }
+        const okCols = sv && Array.isArray(sv.cols) && sv.cols.length === 5 &&
+            sv.cols.every((c) => Array.isArray(c) && c.length === 15 && c.every((n) => Number.isInteger(n)));
+        if (!sv || !okCols || sv.code !== GAME_CODE || (sv.type !== 'pieni' && sv.type !== 'iso') ||
+            typeof sv.id !== 'string' || Date.now() - sv.ts > 12 * 3600 * 1000) return false;
+
+        MY_ID = sv.id; playerName = sv.name || '';
+        document.getElementById('setup').style.display = 'none';
+        document.getElementById('game-area').style.display = 'block';
+        boardTime = sv.time || '';
+        document.getElementById('board-time').innerText = boardTime;
+        gameInProgress = true;
+
+        createBoard(sv.type, sv.cols);
+        const marked = new Set((sv.marked || []).map(Number));
+        document.querySelectorAll('#bingo-board td').forEach((td) => {
+            const n = parseInt(td.innerText, 10);
+            if (!isNaN(n) && marked.has(n)) td.classList.add('marked');
+        });
+        document.querySelectorAll('#bingo-board tbody tr').forEach((tr) => {
+            if (!tr.classList.contains('spacer-row')) checkRow(tr);
+        });
+        if (GAME_CODE) {   // sama tunniste kuin ennen päivitystä -> listoille ei tule tuplaa, vain sama pelaaja uudelleen
+            myMsg = JSON.stringify({ t: 'j', id: MY_ID, nm: playerName, k: sv.type, c: cardString() });
+            joinMyGame();
+        }
+        return true;
+    }
+    tryRestoreGame();
 
 </script>
 </body>
